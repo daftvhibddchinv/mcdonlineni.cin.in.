@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="hi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>PDF/Image to QR</title>
+  <style>
+    :root { font-family: system-ui, Arial, sans-serif; }
+    body { max-width: 780px; margin: 32px auto; padding: 0 16px; }
+    .card { border: 1px solid #e5e7eb; border-radius: 16px; padding: 20px; box-shadow: 0 6px 20px rgba(0,0,0,.05); }
+    .row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+    .btn { padding: 10px 16px; border-radius: 10px; border: 1px solid #111; background: #111; color: #fff; cursor: pointer; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    .muted { color:#6b7280; }
+    #qr { border:1px dashed #ddd; padding:12px; display:inline-block; border-radius:12px; }
+    input[type=file] { padding:10px; border:1px solid #e5e7eb; border-radius:10px; background:#fafafa; }
+    .field { display:flex; gap:8px; align-items:center; }
+    code { background:#f3f4f6; padding:2px 6px; border-radius:6px; }
+  </style>
+</head>
+<body>
+  <h1>Me-QR जैसी साइट (MVP)</h1>
+  <p class="muted">फ़ाइल अपलोड करें → Short URL बनेगा → उसी का QR कोड.</p>
+
+  <div class="card">
+    <form id="uform">
+      <div class="field">
+        <label for="file">फ़ाइल चुनें (PDF/Image):</label>
+        <input id="file" type="file" name="file" accept=".pdf,image/*" required />
+      </div>
+      <br />
+      <button class="btn" id="uploadBtn" type="submit">Upload & Generate</button>
+    </form>
+
+    <div id="result" style="margin-top:20px; display:none;">
+      <p><strong>Public URL: </strong><a id="fileLink" href="#" target="_blank"></a></p>
+      <div class="row">
+        <div id="qr"></div>
+        <div>
+          <button class="btn" id="downloadQR">Download QR</button><br /><br />
+          <button class="btn" id="copyUrl">Copy URL</button>
+          <p class="muted" id="stats"></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- QRCode library (client-side) -->
+  <script src="https://unpkg.com/qrcode/build/qrcode.min.js"></script>
+  <script>
+    const form = document.getElementById('uform');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const result = document.getElementById('result');
+    const fileLink = document.getElementById('fileLink');
+    const qrBox = document.getElementById('qr');
+    const statsP = document.getElementById('stats');
+    const dlBtn = document.getElementById('downloadQR');
+    const copyBtn = document.getElementById('copyUrl');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      uploadBtn.disabled = true;
+
+      const fd = new FormData();
+      const file = document.getElementById('file').files[0];
+      if (!file) return;
+
+      fd.append('file', file);
+      try {
+        const r = await fetch('/api/upload', { method: 'POST', body: fd });
+        const data = await r.json();
+        if (!data.ok) throw new Error(data.error || 'Upload failed');
+
+        fileLink.href = data.url;
+        fileLink.textContent = data.url;
+
+        // Generate QR
+        qrBox.innerHTML = '';
+        const canvas = document.createElement('canvas');
+        await QRCode.toCanvas(canvas, data.url, { width: 220, margin: 2 });
+        qrBox.appendChild(canvas);
+
+        result.style.display = 'block';
+
+        // Fetch simple stats
+        const sr = await fetch(`/api/stats/${data.id}`);
+        const s = await sr.json();
+        if (s.ok) {
+          statsP.textContent = `Views: ${s.hits} • Uploaded: ${new Date(s.uploadedAt).toLocaleString()}`;
+        } else {
+          statsP.textContent = '';
+        }
+
+        // Download QR
+        dlBtn.onclick = () => {
+          const link = document.createElement('a');
+          link.download = `qr-${data.id}.png`;
+          link.href = canvas.toDataURL('image/png');
+          link.click();
+        };
+
+        copyBtn.onclick = async () => {
+          await navigator.clipboard.writeText(data.url);
+          copyBtn.textContent = 'Copied!';
+          setTimeout(() => (copyBtn.textContent = 'Copy URL'), 1200);
+        };
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        uploadBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
